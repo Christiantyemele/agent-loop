@@ -1,0 +1,24 @@
+[package]
+name = "agent_loop"
+version = "0.1.0"
+edition = "2021"
+
+# The library name defaults to the package name (agent_loop); it is the crate
+# that both the notebook cells and the binary import as `agent_loop`.
+
+[lib]
+name = "agent_loop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agent-loop"
+path = "src/main.rs"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+dotenvy = "0.15"
+
+[dev-dependencies]
