@@ -195,7 +195,19 @@ impl Agent {
                 });
             }
 
-            // 7) The model wants tools. Observe each "about to use" event.
+            // 7) The model wants tools. First make the response observable —
+            //    this fires *before* any of the advertised tools run, so a
+            //    listener can see the raw response (and its tool_calls) first.
+            if !tool_calls.is_empty() {
+                self.config.hooks.fire(
+                    HookEvent::ResponseReceived,
+                    &HookPayload::ResponseReceived {
+                        response: raw_response.clone(),
+                    },
+                );
+            }
+
+            // 8) Observe each "about to use" event.
             for call in &tool_calls {
                 self.config.hooks.fire(
                     HookEvent::PreToolUse,

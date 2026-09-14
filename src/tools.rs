@@ -14,11 +14,12 @@
 //! can be extended at runtime, which is exactly how new capabilities get bolted
 //! on to a running agent without recompiling it.
 //!
-//! The built-ins here cover the three families from the plan:
+//! The built-ins here cover the families from the plan:
 //!
 //!   - **file operations**: read / write / list files
 //!   - **bash**: run a shell command and capture stdout/stderr
 //!   - **web search**: ask a search engine (or fetch a URL) for web content
+//!   - **calculator**: safely evaluate a numeric expression
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
@@ -229,6 +230,39 @@ pub mod bash_tools {
     }
 }
 
+pub mod calc_tools {
+    use super::*;
+
+    /// A tool that safely evaluates a numeric expression.
+    ///
+    /// Deliberately **not** an `eval` of arbitrary code: it is a small recursive-
+    /// descent parser over a closed grammar (numbers, `+ - * / ^`, parentheses,
+    /// a set of named functions and constants). That keeps it safe while still
+    /// being useful for the "let the agent do arithmetic" use case.
+    pub fn calc_tool() -> Tool {
+        Tool::new(
+            "calc",
+            "Evaluate a numeric expression and return the result. Supports +, -, *, /, ^ (power), parentheses, the constants pi/e/tau, and the functions sqrt, abs, sin, cos, tan, asin, acos, atan, exp, ln, log, floor, ceil, round, min, max. Example expression: (2 + 3) * 4 ^ 2 + sqrt(9).",
+            s_required(json!({
+                "expression": {"type": "string", "description": "The arithmetic expression to evaluate, e.g. \"(2 + 3) * 4\"."}
+            }), &["expression"]),
+            |args| {
+                let expr = args.get("expression")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("missing `expression`"))?;
+                let value = crate::calc::eval(expr)
+                    .map_err(|e| anyhow::anyhow!("failed to evaluate {expr:?}: {e}"))?;
+                let rendered = if value.fract() == 0.0 && value.abs() < 1e15 {
+                    format!("{}", value as i64)
+                } else {
+                    format!("{value}")
+                };
+                Ok(ToolResult::ok(rendered))
+            },
+        )
+    }
+}
+
 pub mod web_tools {
     use super::*;
 
@@ -312,6 +346,7 @@ pub fn builtin_tools() -> Vec<Tool> {
         bash_tools::run_tool(),
         web_tools::fetch_tool(),
         web_tools::search_tool(),
+        calc_tools::calc_tool(),
     ]
 }
 
@@ -401,7 +436,8 @@ mod tests {
         assert!(r.contains("bash_run"));
         assert!(r.contains("web_search"));
         assert!(r.contains("web_fetch"));
-        assert_eq!(r.len(), 6);
+        assert!(r.contains("calc"));
+        assert_eq!(r.len(), 7);
     }
 
     #[test]

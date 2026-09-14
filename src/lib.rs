@@ -4,7 +4,7 @@
 //! calling agent loop, written to be *read* and *run* as a presentation:
 //!
 //!   - [`chat`]       — message types + an OpenAI-compatible client (raw wire format)
-//!   - [`tools`]      — tool definitions (file ops, bash, web) + a dynamic registry
+//!   - [`tools`]      — tool definitions (file ops, bash, web, calculator) + a dynamic registry
 //!   - [`executor`]   — sequential & parallel tool execution
 //!   - [`hooks`]      — the six lifecycle hooks (pretooluse, posttooluse, ...)
 //!   - [`agent`]      — the loop that ties it all together
@@ -13,6 +13,7 @@
 //! notebooks in `notebooks/`.
 
 pub mod agent;
+pub mod calc;
 pub mod chat;
 pub mod executor;
 pub mod hooks;

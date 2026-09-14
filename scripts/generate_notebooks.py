@@ -92,9 +92,9 @@ single model request all the way to hooks that observe the whole lifecycle.
 
 | # | Topic | Where |
 |---|-------|-------|
-| 1 | Model request/response, the message format, and how a request *exposes tools* (file ops, bash, web search) | `01_request_response_tools` |
-| 2 | Parallel tool execution | `02_parallel_tool_execution` |
-| 3 | Dynamic tools | `03_dynamic_tools` |
+| 1 | Model request/response, the message format, and how a request *exposes tools* (file ops, web, calculator) | `01_request_response_tools` |
+| 2 | Single tool execution, then parallel tool execution | `02_parallel_tool_execution` |
+| 3 | Adding a tool (the dynamic registry) | `03_dynamic_tools` |
 | 4 | Hooks: what they are and how the agent incorporates them | `04_hooks` |
 | 5 | How a hook is executed — real examples for `pretooluse`, `posttooluse`, `userpromptsubmit`, `stop`, `subagentstart`, `subagentstop` | `05_hook_execution` |
 
@@ -123,9 +123,10 @@ export OPENAI_API_KEY=sk-...                         # optional for local server
 export AGENT_LOOP_MODEL=llama3.1                     # or gpt-4o-mini, qwen2.5, ...
 ```
 
-> Demo **2 (parallel)** and **3 (dynamic tools)** and most of **5 (hooks)** are
-> fully local — they need no network. Demo **1** and the live `agent.run()`
-> cells need a reachable endpoint, and degrade gracefully if none is up.
+> Demo **2 (single then parallel)** and **3 (adding a tool)** and most of
+> **5 (hooks)** are fully local — they need no network. Demo **1** and the live
+> `agent.run()` cells need a reachable endpoint, and degrade gracefully if none
+> is up.
 """
         ),
         code(
@@ -147,8 +148,8 @@ println!("chat api : {}", client.chat_api_url());
             """## Agenda (execution order)
 
 1. **Request / response & tools exposed** — open `01_request_response_tools.ipynb`
-2. **Parallel tool execution** — open `02_parallel_tool_execution.ipynb`
-3. **Dynamic tools** — open `03_dynamic_tools.ipynb`
+2. **Single tool execution, then parallel** — open `02_parallel_tool_execution.ipynb`
+3. **Adding a tool** — open `03_dynamic_tools.ipynb`
 4. **Hooks** (conception) — open `04_hooks.ipynb`
 5. **Hooks** (execution) — open `05_hook_execution.ipynb`
 
@@ -196,8 +197,8 @@ Two things matter for an *agent*:
   can read, so the model knows it exists and how to fill in its arguments.
 
 Below we build the exact request this runbook's agent sends, and print it as the
-bytes that go over the wire. You will literally *see* the file, bash and web
-tools advertised to the model.
+bytes that go over the wire. You will literally *see* the file, web and
+calculator tools advertised to the model.
 """
         ),
         code(
@@ -206,19 +207,21 @@ tools advertised to the model.
 
 // Load the crate pieces we need.
 use agent_loop::chat::{ChatRequest, ChatMessage, ChatClient, default_model};
-use agent_loop::tools::{ToolRegistry, file_tools, bash_tools, web_tools};
+use agent_loop::tools::{ToolRegistry, file_tools, web_tools, calc_tools};
 
-// Build the built-in tool surface explicitly so we can inspect it.
+// Build the built-in tool surface explicitly so we can inspect it:
+// three families — file ops, web, and a calculator.
 let mut registry = ToolRegistry::new();
 for t in [file_tools::read_tool(), file_tools::write_tool(), file_tools::list_tool(),
-          bash_tools::run_tool(), web_tools::fetch_tool(), web_tools::search_tool()] {
+          web_tools::fetch_tool(), web_tools::search_tool(),
+          calc_tools::calc_tool()] {
     registry.register(t);
 }
 println!("Registered {} tools.", registry.len());
 
 // The messages: a system message (the agent behaviour) + the user prompt.
 let messages = vec![
-    ChatMessage::system("You are a coding agent. You can read and write files, run bash, and search the web."),
+    ChatMessage::system("You are a coding agent. You can read and write files, search the web, and do arithmetic."),
     ChatMessage::user("Summarise the files in my project and tell me what hello.rs contains."),
 ];
 
@@ -239,8 +242,8 @@ request
 `to_json_pretty()` returns the precise JSON that gets POSTed to
 `/chat/completions`. Look at the **`tools`** array: the model is handed the
 `name`, a human-readable `description`, and a JSON `parameters` schema for each
-of `file_read`, `file_write`, `file_list`, `bash_run`, `web_fetch`,
-`web_search`. That schema is the *contract* the model uses to produce arguments.
+of `file_read`, `file_write`, `file_list`, `web_fetch`, `web_search`, `calc`.
+That schema is the *contract* the model uses to produce arguments.
 """
         ),
         code(
@@ -281,7 +284,7 @@ way the loop builds it, then printed as the JSON the endpoint actually receives:
             """
 // Build one system message by hand.
 let system_message = agent_loop::chat::ChatMessage::system(
-    "You are a coding agent. You can read and write files, run bash, and search the web. Be concise."
+    "You are a coding agent. You can read and write files, search the web, and do arithmetic. Be concise."
 );
 println!("{}", agent_loop::chat::pretty(&serde_json::to_value(&system_message).unwrap()));
 """
@@ -295,7 +298,8 @@ Now send it live. Two things can happen:
   done.
 - The endpoint answers with **`tool_calls`** (`finish_reason = "tool_calls"`):
   the model wants us to run tools. Note the model **never runs them itself** —
-  it only *declares* the calls. Running them is the loop's job (see demos 2–5).
+  it only *declares* the calls. Running them is the loop's job — demo 2 executes
+  a single call, then parallel calls; demo 3 shows how a tool is added.
 
 The cell below attempts the live exchange. If no endpoint is reachable it prints
 a friendly note instead of failing the notebook.
@@ -324,8 +328,9 @@ You now have the two halves of the loop:
 - **Response** = either a final answer (`stop`) or a set of **`tool_calls`**
   that the loop must execute and feed back.
 
-That "feed back and repeat" is precisely what demo `04`/`05` orchestrate, and
-what demos `02` and `03` speed up and make flexible.
+That "feed back and repeat" is precisely what demo 2 makes concrete (executing
+that single call, then many in parallel), demo 3 grows the toolset, and demos
+`04`/`05` observe the whole loop with hooks.
 """
         ),
     ]
@@ -333,38 +338,121 @@ what demos `02` and `03` speed up and make flexible.
 
 
 # ---------------------------------------------------------------------------
-# 02 - parallel tool execution
+# 02 - single tool execution, then parallel
 # ---------------------------------------------------------------------------
 def demo02() -> list:
     cells = [
         md(
-            """# 2 · Parallel tool execution
+            """# 2 · Single tool execution, then parallel
 
-When the model replies with several `tool_calls` in one assistant message, we
-can run them independently. Tools that don't depend on each other are perfect
-candidates for parallelism.
+Demo 1 only *built* a request — it serialized tools but never actually ran one.
+Here we do the real thing, in two steps that mirror how the loop thinks:
 
-The executor exposes two strategies:
-- **sequential** — run one at a time, in order;
-- **parallel** — fan out onto worker threads and collect results back in the
-  original order.
+1. **A single tool call** — the model asks for one thing, we run it once.
+2. **Parallel tool execution** — the model asks for several *independent*
+   things in one message; we fan them out onto threads and collect the results.
 
-This demo is **fully local** (no network): we register `N` toy tools that each
-sleep `300 ms`, then run the same batch both ways and compare the wall-clock
-time. The ordering of results is preserved in *both* modes — parallelism buys
-speed, never reordering.
+We use the built-in **file, web and calculator** tools throughout. Below, a
+single `calc` call is executed exactly once via `execute_one`.
 """
         ),
         code(
             DEP
             + """
 
-use agent_loop::tools::{ToolRegistry, Tool, ToolResult, s_required};
+use agent_loop::tools::ToolRegistry;
+use agent_loop::chat::ToolCall;
+use agent_loop::executor::execute_one;
+
+// The built-ins include file, web and calculator tools.
+let registry = ToolRegistry::with_builtins();
+println!("built-ins ({}): {}", registry.len(),
+    registry.all().iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", "));
+
+// The model emitted exactly ONE tool call. Running a loop is, at bottom, just
+// doing this: name + arguments -> registry lookup -> execute -> tool result.
+let call = ToolCall {
+    id: "call_calc_1".into(),
+    name: "calc".into(),
+    arguments: r#"{"expression": "(2 + 3) * 4 ^ 2 + sqrt(9)"}"#.into(),
+};
+
+let started = std::time::Instant::now();
+let result = execute_one(&registry, &call);
+let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+
+println!("single call `{}` took {:.3} ms", call.name, elapsed_ms);
+println!("result -> {}", result.content.as_deref().unwrap_or("<none>"));
+"""
+        ),
+        md(
+            """### What "a single tool call" means
+
+That one call is the **smallest unit of the entire loop**. Everything else is a
+refinement of it:
+
+```
+model says  call(calc, {"expression":"(2+3)*4^2+sqrt(9)"})
+                    │
+                    ▼
+              execute_one(registry, &call)
+                    │  1. parse arguments
+                    │  2. find tool by name
+                    │  3. run its executor
+                    ▼
+            tool_result message -> fed back to the model
+```
+
+A **file** tool works identically — same shape, different target. Try a single
+`file_list` call on the notebook directory:
+
+> Note: the kernel's working directory is the `notebooks/` folder (JupyterLab
+> was launched with `--notebook-dir notebooks`), so a relative `"notebooks"`
+> path would resolve to `notebooks/notebooks` and fail. We pass the absolute
+> path instead so the demo works no matter where the kernel starts.
+"""
+        ),
+        code(
+            """
+// A single FILE call: same execute_one, different tool. We use the absolute
+// notebooks path because the kernel CWD is the notebooks dir itself.
+let file_call = ToolCall {
+    id: "call_list_1".into(),
+    name: "file_list".into(),
+    arguments: r#"{"path": "@NOTES_DIR@"}"#.into(),
+};
+let out = execute_one(&registry, &file_call);
+println!("file_list ->\\n{}", out.content.as_deref().unwrap_or("<none>"));
+""".replace("@NOTES_DIR@", OUT)
+        ),
+        md(
+            """### Several independent calls arrive at once
+
+A real model rarely returns exactly one `tool_calls` entry — it often returns
+several *independent* ones in a single assistant message. They could be N file
+reads, N web fetches, or N separate calculations. Because they don't depend on
+each other, they are prime candidates for running **in parallel**.
+
+The executor exposes two strategies:
+- **sequential** — run one at a time, in order;
+- **parallel** — fan out onto worker threads and collect results back in the
+  original order.
+
+This demo is **fully local** (no network): we register `N` independent compute
+tools that each sleep `300 ms`, then run the same batch both ways and compare
+the wall-clock time. The ordering of results is preserved in *both* modes —
+parallelism buys speed, never reordering.
+"""
+        ),
+        code(
+            """
+
+use agent_loop::tools::{Tool, ToolResult, s_required};
 use agent_loop::executor::execute_many;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-// Register 4 independent "sleep" tools. Each claims 300 ms of work.
+// Register 4 independent tools. Each claims 300 ms of work.
 let mut registry = ToolRegistry::new();
 for i in 0..4usize {
     registry.register(Tool::new(
@@ -428,7 +516,8 @@ parallel   :  300 ms   ██████
 
 The speedup scales with the number of *independent* calls. The loop chooses the
 strategy via `AgentConfig.parallel_tools`. The same `execute_many` is what the
-agent loop in demos 4–5 calls under the hood.
+agent loop in demos 4–5 calls under the hood — it is just `execute_one` (from
+the single-call step above) repeated, optionally on worker threads.
 """
         ),
     ]
@@ -441,18 +530,18 @@ agent loop in demos 4–5 calls under the hood.
 def demo03() -> list:
     cells = [
         md(
-            """# 3 · Dynamic tools
+            """# 3 · Adding a tool (and the dynamic registry)
 
-"Dynamic tools" means the tool surface is **not fixed at compile time**. The
-`ToolRegistry` is just an in-memory map: you can register, replace, and unregister
-tools **while the agent is alive**. New capabilities can be bolted on without
-recompiling — exactly how a running agent gets a new skill, or how a user exposes
-a private function as a callable tool.
+Demo 1 showed how a request *exposes* tools, and demo 2 *executed* them. But a
+fixed set of tools is limiting. An agent should be able to **gain a new
+capability** — this is "dynamic tools": the tool surface is **not fixed at
+compile time**. The `ToolRegistry` is just an in-memory map: you can register,
+replace, and unregister tools **while the agent is alive**.
 
-This demo is **fully local**. We start with only the built-ins, then:
-1. register a brand-new custom tool at runtime,
-2. replace an existing tool's handler,
-3. observe the registry's tool list change before/after.
+We keep using the **file, web and calculator** families. Here we bolt a brand-
+new *file* tool (`file_head`) directly onto the running registry.
+
+This demo is **fully local**.
 """
         ),
         code(
@@ -468,57 +557,72 @@ println!("initial tools ({}): {}", registry.len(),
 """
         ),
         md(
-            """### Register a new tool at runtime
+            """### How to add a tool
 
-Here we add a `weather` tool that didn't exist a moment ago. It takes a city and
-returns a canned forecast. The agent running in the same process could call it
-immediately on the next turn.
+A tool is two things: a **description** the model can read (name + JSON-schema
+parameters) and an **executor** (the closure that does the work). `Tool::new`
+bundles them. Below we add `file_head`, which returns the first `n` lines of a
+file — part of the file-ops family, added live.
 """
         ),
         code(
             """
-// A tool that did NOT exist at compile time; added live.
+// The tool did NOT exist a moment ago; we register it at runtime.
 registry.register(Tool::new(
-    "weather",
-    "Return a weather forecast for a given city.",
-    s_required(json!({"city": {"type":"string"}}), &["city"]),
+    "file_head",
+    "Return the first n lines of a text file.",
+    s_required(json!({
+        "path": {"type": "string"},
+        "n": {"type": "integer"}
+    }), &["path"]),
     |args| {
-        let city = args.get("city").and_then(Value::as_str).unwrap_or("unknown");
-        Ok(ToolResult::ok(format!("sunny, 22°C in {city}")))
+        let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+        let n = args.get("n").and_then(Value::as_i64).unwrap_or(5) as usize;
+        let text = std::fs::read_to_string(path)?;
+        let head: Vec<&str> = text.lines().take(n).collect();
+        Ok(ToolResult::ok(head.join("\\n")))
     },
 ));
 
-println!("after adding weather ({}): {}", registry.len(),
+println!("after adding file_head ({}): {}", registry.len(),
     registry.all().iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", "));
-println!("can call it now -> {}", registry.get("weather").unwrap()
-    .run(&json!({"city": "Berlin"})).unwrap().output);
+println!("call it now ->\n{}", registry.get("file_head").unwrap()
+    .run(&json!({"path": "Cargo.toml", "n": 3})).unwrap().output);
 """
         ),
         md(
             """### Replace a handler at runtime
 
 Same name, new behaviour: drop-in upgrades without changing the call site. The
-model never knows — it just continues emitting `weather(...)` calls.
+model never knows — it just continues emitting `file_head(...)` calls.
 """
         ),
         code(
             """
-let before = registry.get("weather").unwrap().run(&json!({"city":"Oslo"})).unwrap().output;
+let before = registry.get("file_head").unwrap()
+    .run(&json!({"path":"Cargo.toml","n":2})).unwrap().output;
 
-// Same tool name, new handler.
+// Same tool name, new handler: now it returns a file *snippet* instead.
 registry.register(Tool::new(
-    "weather",
-    "Return a weather forecast for a given city.",
-    s_required(json!({"city": {"type":"string"}}), &["city"]),
+    "file_head",
+    "Return the first n lines of a text file, labelled.",
+    s_required(json!({
+        "path": {"type": "string"},
+        "n": {"type": "integer"}
+    }), &["path"]),
     |args| {
-        let city = args.get("city").and_then(Value::as_str).unwrap_or("unknown");
-        Ok(ToolResult::ok(format!("10 cm of snow in {city} (winter storm)")))
+        let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+        let n = args.get("n").and_then(Value::as_i64).unwrap_or(5) as usize;
+        let text = std::fs::read_to_string(path)?;
+        let head: Vec<String> = text.lines().take(n).map(|l| format!("> {l}")).collect();
+        Ok(ToolResult::ok(head.join("\\n")))
     },
 ));
 
-let after = registry.get("weather").unwrap().run(&json!({"city":"Oslo"})).unwrap().output;
-println!("before replacement: {before}");
-println!("after  replacement: {after}");
+let after = registry.get("file_head").unwrap()
+    .run(&json!({"path":"Cargo.toml","n":2})).unwrap().output;
+println!("before replacement:\n{before}\\n");
+println!("after  replacement:\n{after}");
 """
         ),
         md(
@@ -530,11 +634,11 @@ tool as unknown so the model can adapt.
         ),
         code(
             """
-registry.unregister("weather");
-println!("after removing weather ({}): {}", registry.len(),
+registry.unregister("file_head");
+println!("after removing file_head ({}): {}", registry.len(),
     registry.all().iter().map(|t| t.name.as_str()).collect::<Vec<_>>().join(", "));
 
-let unknown = agent_loop::chat::ToolCall { id: "x".into(), name: "weather".into(), arguments: "{}".into() };
+let unknown = agent_loop::chat::ToolCall { id: "x".into(), name: "file_head".into(), arguments: "{}".into() };
 let msg = agent_loop::executor::execute_one(&registry, &unknown);
 println!("call to removed tool -> {}", msg.content.unwrap());
 """
@@ -545,7 +649,9 @@ println!("call to removed tool -> {}", msg.content.unwrap());
 The request in demo 1 serializes whatever is in the registry at request time
 (`registry.as_chat_tools()`). So adding a tool dynamically *changes the next
 request* the model sees — the model learns about the new tool on the very next
-turn. Dynamic + parallel + the loop from demo 1 = a live, growing agent.
+turn. The **calculator** `calc` tool shipped in the crate is itself just
+something added to the registry this way. Dynamic + single/parallel execution
+(demos 1–2) + the loop from demo 5 = a live, growing agent.
 """
         ),
     ]
@@ -839,8 +945,8 @@ def main() -> int:
     specs = [
         ("00_welcome.ipynb", "Agent Loops: Welcome", welcome()),
         ("01_request_response_tools.ipynb", "1 · Request/Response & Tools", demo01()),
-        ("02_parallel_tool_execution.ipynb", "2 · Parallel Tool Execution", demo02()),
-        ("03_dynamic_tools.ipynb", "3 · Dynamic Tools", demo03()),
+        ("02_parallel_tool_execution.ipynb", "2 · Single Tool, then Parallel", demo02()),
+        ("03_dynamic_tools.ipynb", "3 · Adding a Tool", demo03()),
         ("04_hooks.ipynb", "4 · Hooks (Conception)", demo04()),
         ("05_hook_execution.ipynb", "5 · Hook Execution", demo05()),
     ]

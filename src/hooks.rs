@@ -7,12 +7,15 @@
 //! guardrails, caching, you name it. They sit *around* the loop without changing
 //! its core wiring.
 //!
-//! The six hook events modelled here mirror the well-known coding-agent hook
+//! The hook events modelled here mirror the well-known coding-agent hook
 //! names:
 //!
+//!   - `UserPromptSubmit`— fired when the user's message enters the loop
+//!   - `ResponseReceived`— fired once the model's raw response arrives, *before*
+//!                         any tool runs (this is where a request's tool_calls
+//!                         become visible / auditable)
 //!   - `PreToolUse`      — fired *before* a tool runs  (could veto / log it)
 //!   - `PostToolUse`     — fired *after* a tool returns (log the result)
-//!   - `UserPromptSubmit`— fired when the user's message enters the loop
 //!   - `Stop`            — fired when the turn ends (finish_reason = stop)
 //!   - `SubAgentStart`   — fired when a sub-agent is spawned
 //!   - `SubAgentStop`    — fired when a sub-agent finishes
@@ -27,12 +30,13 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-/// The six lifecycle events the hook system can observe.
+/// The lifecycle events the hook system can observe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HookEvent {
     PreToolUse,
     PostToolUse,
     UserPromptSubmit,
+    ResponseReceived,
     Stop,
     SubAgentStart,
     SubAgentStop,
@@ -45,16 +49,18 @@ impl HookEvent {
             HookEvent::PreToolUse => "pretooluse",
             HookEvent::PostToolUse => "posttooluse",
             HookEvent::UserPromptSubmit => "userpromptsubmit",
+            HookEvent::ResponseReceived => "responsereceived",
             HookEvent::Stop => "stop",
             HookEvent::SubAgentStart => "subagentstart",
             HookEvent::SubAgentStop => "subagentstop",
         }
     }
 
-    pub const ALL: [HookEvent; 6] = [
+    pub const ALL: [HookEvent; 7] = [
         HookEvent::PreToolUse,
         HookEvent::PostToolUse,
         HookEvent::UserPromptSubmit,
+        HookEvent::ResponseReceived,
         HookEvent::Stop,
         HookEvent::SubAgentStart,
         HookEvent::SubAgentStop,
@@ -82,6 +88,12 @@ pub enum HookPayload {
     },
     UserPromptSubmit {
         prompt: String,
+    },
+    /// The raw model response as received over the wire. Fires before any tool
+    /// call it advertises is executed, so a listener sees the `tool_calls` the
+    /// model actually asked for.
+    ResponseReceived {
+        response: Value,
     },
     Stop {
         reason: String,
@@ -139,6 +151,11 @@ impl Hooks {
     }
     pub fn on_user_prompt_submit(&mut self, f: impl Fn(&HookPayload) + Send + Sync + 'static) {
         self.register(HookEvent::UserPromptSubmit, f);
+    }
+    /// Register a callback fired when the model's raw response arrives, right
+    /// before any tool call it contains is executed.
+    pub fn on_response(&mut self, f: impl Fn(&HookPayload) + Send + Sync + 'static) {
+        self.register(HookEvent::ResponseReceived, f);
     }
     pub fn on_stop(&mut self, f: impl Fn(&HookPayload) + Send + Sync + 'static) {
         self.register(HookEvent::Stop, f);
@@ -261,6 +278,6 @@ mod tests {
     fn all_event_names_are_distinct() {
         let names: std::collections::HashSet<_> =
             HookEvent::ALL.iter().map(|e| e.as_str()).collect();
-        assert_eq!(names.len(), 6);
+        assert_eq!(names.len(), 7);
     }
 }

@@ -10,16 +10,17 @@ OpenAI-compatible endpoint.
 | Notebook | Topic |
 |----------|-------|
 | `notebooks/00_welcome.ipynb` | Overview, agenda, mental model, configuration |
-| `notebooks/01_request_response_tools.ipynb` | Model request/response, the system-message format, and how a request **exposes tools** (file ops, bash, web search) |
-| `notebooks/02_parallel_tool_execution.ipynb` | Parallel vs sequential tool execution with timing |
-| `notebooks/03_dynamic_tools.ipynb` | Registering / replacing / removing tools at runtime |
+| `notebooks/01_request_response_tools.ipynb` | Model request/response, the system-message format, and how a request **exposes tools** (file ops, web search, calculator) |
+| `notebooks/02_parallel_tool_execution.ipynb` | Single tool execution, then parallel vs sequential execution with timing |
+| `notebooks/03_dynamic_tools.ipynb` | Adding / replacing / removing a tool at runtime (the dynamic registry) |
 | `notebooks/04_hooks.ipynb` | What hooks are and how the agent incorporates them |
 | `notebooks/05_hook_execution.ipynb` | Live examples of `pretooluse`, `posttooluse`, `userpromptsubmit`, `stop`, `subagentstart`, `subagentstop` |
 
 The underlying implementation lives in `src/`:
 
 - `src/chat.rs` — the OpenAI-compatible wire types and client
-- `src/tools.rs` — file / bash / web tools plus the dynamic registry
+- `src/tools.rs` — file / web / calculator tools plus the dynamic registry
+- `src/calc.rs` — the safe expression evaluator behind the `calc` tool
 - `src/executor.rs` — sequential and parallel tool execution
 - `src/hooks.rs` — the six-lifecycle-event hook system
 - `src/agent.rs` — the loop that ties them together
@@ -29,9 +30,6 @@ The underlying implementation lives in `src/`:
 ```bash
 # 1. One-time setup (Rust, Jupyter venv, evcxr kernel, evcxr user-deps)
 ./scripts/setup.sh --install-kernel
-
-# 2. Configure the endpoint — either export the vars, or use a .env file
-cp .env.example .env          # then edit with your real endpoint/model
 
 # 3. (Optional) generate/refresh executed outputs against your live model
 ./scripts/execute_notebooks.sh
