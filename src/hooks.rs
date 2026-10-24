@@ -12,8 +12,8 @@
 //!
 //!   - `UserPromptSubmit`— fired when the user's message enters the loop
 //!   - `ResponseReceived`— fired once the model's raw response arrives, *before*
-//!                         any tool runs (this is where a request's tool_calls
-//!                         become visible / auditable)
+//!     any tool runs (this is where a request's tool_calls
+//!     become visible / auditable)
 //!   - `PreToolUse`      — fired *before* a tool runs  (could veto / log it)
 //!   - `PostToolUse`     — fired *after* a tool returns (log the result)
 //!   - `Stop`            — fired when the turn ends (finish_reason = stop)

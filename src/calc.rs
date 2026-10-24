@@ -16,7 +16,10 @@ pub fn eval(input: &str) -> Result<f64, String> {
     let value = parser.parse()?;
     parser.skip_ws();
     if let Some(ch) = parser.peek_char() {
-        return Err(format!("unexpected character `{ch}` at position {}", parser.pos));
+        return Err(format!(
+            "unexpected character `{ch}` at position {}",
+            parser.pos
+        ));
     }
     Ok(value)
 }
@@ -160,7 +163,11 @@ impl Parser {
                     self.pos += 1;
                 }
                 let exp_start = self.pos;
-                while self.peek_char().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                while self
+                    .peek_char()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+                {
                     self.pos += 1;
                 }
                 if self.pos == exp_start {
@@ -209,10 +216,7 @@ impl Parser {
             return Ok(inner);
         }
 
-        Err(format!(
-            "unexpected token at position {}",
-            self.pos
-        ))
+        Err(format!("unexpected token at position {}", self.pos))
     }
 }
 
