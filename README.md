@@ -77,6 +77,33 @@ Precedence: **real shell environment variables always win** over `.env`;
 # Or run the equivalent directly with the rust kernel:
 .venv/bin/jupyter nbconvert --to notebook --execute --inplace \
     --ExecutePreprocessor.kernel_name=rust notebooks/*.ipynb
+
+# Rehearse demos 1-2 entirely offline against scripts/mock_server.py (no real
+# model or API key): builds a Jupyter venv, regenerates the notebooks so the
+# `:dep` path resolves, wires the evcxr kernel via scripts/setup.sh, and fails
+# if any cell errors. This is exactly what the CI `notebook-execute` job runs:
+./scripts/execute_demos_mock.sh
+```
+
+### Notebook validation in CI
+
+`.github/workflows/ci.yml` now guards the runbook against drift:
+
+- **`notebook-structure`** (required on every push/PR) reads each notebook with
+  `scripts/validate_notebooks.py` and fails the build on malformed notebooks,
+  a wrong rust kernelspec, or a `use agent_loop::...` / `agent_loop::...`
+  reference to a module or item that no longer exists in `src/`. It is offline
+  and independent of the machine-specific `:dep` path, so committed notebooks
+  are validated as-is.
+- **`notebook-execute`** (manual `workflow_dispatch`) installs Jupyter + the
+  evcxr kernel, runs `scripts/setup.sh`, then `scripts/execute_demos_mock.sh`
+  to execute demos 1-2 against the offline mock server. It is optional because
+  it compiles the evcxr kernel (several minutes).
+
+To validate a single checkout locally:
+
+```bash
+python3 scripts/validate_notebooks.py notebooks src   # exit 0 == all good
 ```
 
 ## CLI fallback
