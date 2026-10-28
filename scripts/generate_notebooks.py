@@ -35,6 +35,40 @@ def code(text: str) -> dict:
     }
 
 
+def split_dep_cells(cells: list) -> list:
+    """Isolate the leading `:dep` preface of each notebook's first code cell into
+    a dedicated first code cell.
+
+    evcxr requires `:dep` lines to be alone in their own cell: when a `:dep`
+    appears in the same cell as the `use agent_loop::...`/code that consumes the
+    crate it loads, evcxr fails with `cannot find module or crate 'agent_loop'`
+    (E0433) and the whole downstream cascade errors. Splitting the dep into its
+    own cell (verified against evcxr 0.22) fixes execution.
+    """
+    out: list = []
+    done = False  # only the first code cell carries the dep preface
+    for cell in cells:
+        if not done and cell.get("cell_type") == "code" and cell.get("source"):
+            src = "".join(cell["source"])
+            dep_lines = []
+            rest_lines = []
+            seen_dep = False
+            for line in src.splitlines(keepends=True):
+                if not seen_dep and line.startswith(":dep "):
+                    dep_lines.append(line)
+                else:
+                    seen_dep = True
+                    rest_lines.append(line)
+            if dep_lines:
+                # dedicated dep cell first
+                out.append(code("".join(dep_lines)))
+                if "".join(rest_lines).strip():
+                    out.append(code("".join(rest_lines)))
+                continue
+        out.append(cell)
+    return out
+
+
 def notebook(title: str, cells: list) -> dict:
     return {
         "cells": cells,
@@ -60,6 +94,7 @@ def notebook(title: str, cells: list) -> dict:
 
 def write_nb(filename: str, title: str, cells: list) -> str:
     path = os.path.join(OUT, filename)
+    cells = split_dep_cells(cells)
     with open(path, "w") as f:
         json.dump(notebook(title, cells), f, indent=1)
         f.write("\n")
@@ -220,7 +255,9 @@ for t in [file_tools::read_tool(), file_tools::write_tool(), file_tools::list_to
 println!("Registered {} tools.", registry.len());
 
 // The messages: a system message (the agent behaviour) + the user prompt.
-let messages = vec![
+// Annotated explicitly because evcxr cannot infer the element type of a
+// `vec![...]` of constructor calls across statement boundaries.
+let messages: Vec<ChatMessage> = vec![
     ChatMessage::system("You are a coding agent. You can read and write files, search the web, and do arithmetic."),
     ChatMessage::user("Summarise the files in my project and tell me what hello.rs contains."),
 ];
@@ -377,9 +414,9 @@ let call = ToolCall {
     arguments: r#"{"expression": "(2 + 3) * 4 ^ 2 + sqrt(9)"}"#.into(),
 };
 
-let started = std::time::Instant::now();
+let started: std::time::Instant = std::time::Instant::now();
 let result = execute_one(&registry, &call);
-let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+let elapsed_ms: f64 = started.elapsed().as_secs_f64() * 1000.0;
 
 println!("single call `{}` took {:.3} ms", call.name, elapsed_ms);
 println!("result -> {}", result.content.as_deref().unwrap_or("<none>"));
@@ -483,10 +520,14 @@ Every call waits for the previous one: 4 × 300 ms ≈ **1200 ms**.
         ),
         code(
             """
+// Wrapped in a block so the `execute_many` tuple locals only live inside this
+// cell statement: evcxr cannot persist tuple-destructured bindings across cells.
+{
 let (seq_results, seq_stats) = execute_many(&registry, &calls, false);
 println!("sequential: {} calls took {:.1} ms", seq_stats.n_calls, seq_stats.elapsed_ms);
 for r in &seq_results {
     println!("   ⇠ {}", r.content.as_deref().unwrap_or(""));
+}
 }
 """
         ),
@@ -499,10 +540,14 @@ Results are returned in the *same order* as the calls.
         ),
         code(
             """
+// Wrapped in a block so the `execute_many` tuple locals only live inside this
+// cell statement: evcxr cannot persist tuple-destructured bindings across cells.
+{
 let (par_results, par_stats) = execute_many(&registry, &calls, true);
 println!("parallel  : {} calls took {:.1} ms", par_stats.n_calls, par_stats.elapsed_ms);
 for r in &par_results {
     println!("   ⇠ {}", r.content.as_deref().unwrap_or(""));
+}
 }
 """
         ),

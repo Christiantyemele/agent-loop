@@ -12,6 +12,12 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# rustup installs cargo into ~/.cargo/bin; make sure it is on PATH even when the
+# invoking shell (e.g. a CI step or a non-login wrapper) has not sourced ~/.cargo/env.
+if ! command -v cargo >/dev/null 2>&1 && [ -x "$HOME/.cargo/bin/cargo" ]; then
+  export PATH="$HOME/.cargo/bin:$PATH"
+fi
+
 say() { printf '\033[1;34m%s\033[0m\n' "$*"; }
 die() { printf '\033[1;31m%s\033[0m\n' "$*" >&2; exit 1; }
 

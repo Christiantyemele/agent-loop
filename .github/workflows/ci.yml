@@ -66,3 +66,44 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Build documentation
         run: cargo doc --locked --no-deps --all-features
+
+  notebook-structure:
+    # Offline structural + API-drift validation of the runbook notebooks. Runs on
+    # every commit so malformed notebooks or stale agent_loop imports fail CI.
+    name: Notebook structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install nbformat
+        run: pip install nbformat
+      - name: Validate notebooks
+        run: python scripts/validate_notebooks.py notebooks src
+
+  notebook-execute:
+    # Optional: execute runbook demos 1-2 headlessly against the offline mock
+    # server (no live model / API key). Exercises scripts/setup.sh and the evcxr
+    # kernel so a contributor's environment is reproducible. Manual-only because
+    # it compiles the evcxr_jupyter kernel (several minutes).
+    name: Notebook execute (demos 1-2, offline mock)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Jupyter deps + evcxr kernel
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install jupyterlab notebook nbformat nbclient
+          cargo install evcxr_jupyter --locked
+          "$HOME/.cargo/bin/evcxr_jupyter" --install
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Exercise setup.sh (kernel + deps wiring)
+        run: ./scripts/setup.sh
+      - name: Execute demos 1-2 against the mock server
+        run: ./scripts/execute_demos_mock.sh
